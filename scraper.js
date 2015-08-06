@@ -3,27 +3,16 @@
 var cheerio = require("cheerio");
 var request = require("request");
 var sqlite3 = require("sqlite3").verbose();
+var db;
+const DOMAIN = 'http://www.aph.gov.au';
+const URL = DOMAIN + '/Senators_and_Members/Parliamentarian_Search_Results';
 
 function initDatabase(callback) {
 	// Set up sqlite database.
-	var db = new sqlite3.Database("data.sqlite");
+	db = new sqlite3.Database("data.sqlite");
 	db.serialize(function() {
-		db.run("CREATE TABLE IF NOT EXISTS data (name TEXT)");
-		callback(db);
-	});
-}
-
-function updateRow(db, value) {
-	// Insert some data.
-	var statement = db.prepare("INSERT INTO data VALUES (?)");
-	statement.run(value);
-	statement.finalize();
-}
-
-function readRows(db) {
-	// Read some data.
-	db.each("SELECT rowid AS id, name FROM data", function(err, row) {
-		console.log(row.id + ": " + row.name);
+		db.run("CREATE TABLE IF NOT EXISTS data (id TEXT PRIMARY KEY, name TEXT, detailUrl TEXT, speechUrl TEXT, speech TEXT, date TEXT)");
+		callback();
 	});
 }
 
@@ -39,21 +28,83 @@ function fetchPage(url, callback) {
 	});
 }
 
-function run(db) {
-	// Use request to read in pages.
-	fetchPage("https://morph.io", function (body) {
-		// Use cheerio to find things in the page with css selectors.
-		var $ = cheerio.load(body);
-
-		var elements = $("div.media-body span.p-name").each(function () {
-			var value = $(this).text().trim();
-			updateRow(db, value);
-		});
-
-		readRows(db);
-
-		db.close();
-	});
+function fetchListing(url) {
+	fetchPage(url, processListing);
 }
 
-initDatabase(run);
+function processListing(body){
+	var $ = cheerio.load(body);
+
+	// Look for next
+	var $next = $('a').filter(function(){
+		return $(this).text() === 'Next'
+	}).first();
+
+	// Fetch further listings
+	if ($next.length > 0) {
+		fetchListing(URL + $next.attr('href'));
+	}
+
+	// Process
+	$('ul.search-filter-results li p.title a').each(function(){
+		var url = $(this).attr('href'),
+			id = url.match(/MPID\=(.*)($|&)/)[1],
+			data = {
+				$id: id,
+				$detailUrl: DOMAIN + url
+			};
+
+		if (!data.$id) {
+			console.log('empty', url);
+		}
+		fetchDetailPage.call(data, DOMAIN + url);
+	});
+};
+
+function fetchDetailPage(url) {
+	fetchPage(url, processDetailPage.bind(this));
+}
+
+function processDetailPage(body) {
+	var $ = cheerio.load(body),
+		data = this;
+
+	data.$name = $('#content > h1').text();
+
+	var speechLink = $('a').filter(function(){
+		return $(this).text() === 'First speech';
+	}).first();
+
+	if (speechLink.length) {
+		data.$speechUrl = speechLink.attr('href');
+		fetchSpeechPage.call(data, speechLink.attr('href'));
+	} else {
+		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data);
+	}
+}
+
+function fetchSpeechPage(url) {
+	console.log('Fetching speech for ' + this.$name);
+	fetchPage(url, processSpeechPage.bind(this));
+}
+
+function processSpeechPage(body) {
+	var $ = cheerio.load(body),
+		date,
+		data = this;
+
+	data.$speech = $('#documentContentPanel').text().trim();
+	date = $('#documentInfoPanel > div + div').html();
+	if (date) {
+		data.$date = date.split('<br>')[0];
+	} else {
+		data.$date = null;
+	}
+
+	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data);
+}
+
+initDatabase(function(){
+	fetchListing(URL + '?mem=1&q=');
+	fetchListing(URL + '?sen=1&q=');
+});
