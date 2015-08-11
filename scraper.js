@@ -3,7 +3,11 @@
 var cheerio = require("cheerio");
 var request = require("request");
 var sqlite3 = require("sqlite3").verbose();
+var queue = require('queue-async');
+
 var db;
+var q;
+
 const DOMAIN = 'http://www.aph.gov.au';
 const URL = DOMAIN + '/Senators_and_Members/Parliamentarian_Search_Results';
 
@@ -18,18 +22,17 @@ function initDatabase(callback) {
 
 function fetchPage(url, callback) {
 	// Use request to read in pages.
-	request(url, function (error, response, body) {
-		if (error) {
-			console.log("Error requesting page: " + error);
-			return;
-		}
+	q.defer(function(cb){
 
-		callback(body);
+		request(url, function (error, response, body) {
+			if (error) {
+				console.log("Error requesting page: " + error);
+				return;
+			}
+			callback(body);
+			cb();
+		});
 	});
-}
-
-function fetchListing(url) {
-	fetchPage(url, processListing);
 }
 
 function processListing(body){
@@ -42,7 +45,7 @@ function processListing(body){
 
 	// Fetch further listings
 	if ($next.length > 0) {
-		fetchListing(URL + $next.attr('href'));
+		fetchPage(URL + $next.attr('href'), processListing);
 	}
 
 	// Process
@@ -57,13 +60,9 @@ function processListing(body){
 		if (!data.$id) {
 			console.log('empty', url);
 		}
-		fetchDetailPage.call(data, DOMAIN + url);
+		fetchPage(DOMAIN + url, processDetailPage.bind(data));
 	});
 };
-
-function fetchDetailPage(url) {
-	fetchPage(url, processDetailPage.bind(this));
-}
 
 function processDetailPage(body) {
 	var $ = cheerio.load(body),
@@ -77,15 +76,11 @@ function processDetailPage(body) {
 
 	if (speechLink.length) {
 		data.$speechUrl = speechLink.attr('href');
-		fetchSpeechPage.call(data, speechLink.attr('href'));
+		fetchPage(speechLink.attr('href'), processSpeechPage.bind(data));
+		console.log('Fetching ', data.$name);
 	} else {
 		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data);
 	}
-}
-
-function fetchSpeechPage(url) {
-	console.log('Fetching speech for ' + this.$name);
-	fetchPage(url, processSpeechPage.bind(this));
 }
 
 function processSpeechPage(body) {
@@ -104,7 +99,18 @@ function processSpeechPage(body) {
 	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data);
 }
 
+function deferredTask(func, callback) {
+
+}
+
+q = queue(10);
+
 initDatabase(function(){
-	fetchListing(URL + '?mem=1&q=');
-	fetchListing(URL + '?sen=1&q=');
+	fetchPage(URL + '?mem=1&q=', processListing);
+	fetchPage(URL + '?sen=1&q=', processListing);
+});
+
+
+q.awaitAll(function(){
+	console.log('Done');
 });

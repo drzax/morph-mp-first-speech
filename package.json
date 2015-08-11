@@ -1,7 +1,8 @@
 {
-	"dependencies": {
-		"cheerio": "latest",
-		"request": "latest",
-		"sqlite3": "latest"
-	}
+  "dependencies": {
+    "cheerio": "latest",
+    "queue-async": "^1.0.7",
+    "request": "latest",
+    "sqlite3": "latest"
+  }
 }
