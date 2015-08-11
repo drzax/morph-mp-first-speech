@@ -31,6 +31,7 @@ function fetchPage(url, callback) {
 			}
 			callback(body);
 			cb();
+			global.gc();
 		});
 	});
 }
@@ -79,7 +80,7 @@ function processDetailPage(body) {
 		fetchPage(speechLink.attr('href'), processSpeechPage.bind(data));
 		console.log('Fetching ', data.$name);
 	} else {
-		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data);
+		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data, global.gc);
 	}
 }
 
@@ -96,7 +97,7 @@ function processSpeechPage(body) {
 		data.$date = null;
 	}
 
-	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data);
+	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data, global.gc);
 }
 
 function deferredTask(func, callback) {
