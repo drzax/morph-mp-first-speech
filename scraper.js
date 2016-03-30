@@ -31,7 +31,7 @@ function fetchPage(url, callback) {
 			}
 			callback(body);
 			cb();
-			global.gc();
+			if (global.gc) global.gc();
 		});
 	});
 }
@@ -41,7 +41,7 @@ function processListing(body){
 
 	// Look for next
 	var $next = $('a').filter(function(){
-		return $(this).text() === 'Next'
+		return $(this).text() === 'Next';
 	}).first();
 
 	// Fetch further listings
@@ -63,7 +63,7 @@ function processListing(body){
 		}
 		fetchPage(DOMAIN + url, processDetailPage.bind(data));
 	});
-};
+}
 
 function processDetailPage(body) {
 	var $ = cheerio.load(body),
@@ -80,7 +80,7 @@ function processDetailPage(body) {
 		fetchPage(speechLink.attr('href'), processSpeechPage.bind(data));
 		console.log('Fetching ', data.$name);
 	} else {
-		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data, global.gc);
+		db.run("INSERT OR REPLACE INTO data (id,name,detailUrl) VALUES ($id, $name, $detailUrl)", data, (global.gc) ? global.gc : null);
 	}
 }
 
@@ -97,21 +97,13 @@ function processSpeechPage(body) {
 		data.$date = null;
 	}
 
-	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data, global.gc);
-}
-
-function deferredTask(func, callback) {
-
+	db.run("INSERT OR REPLACE INTO data (id, name, detailUrl, speechUrl, speech, date) VALUES ($id, $name, $detailUrl, $speechUrl, $speech, $date)", data, (global.gc) ? global.gc : null);
 }
 
 q = queue(10);
 
 initDatabase(function(){
-	fetchPage(URL + '?mem=1&q=', processListing);
-	fetchPage(URL + '?sen=1&q=', processListing);
+	fetchPage(URL + '?q=&mem=1&sen=1&ps=100', processListing);
+	fetchPage(URL + '?q=&mem=1&sen=1&ps=100&for=1', processListing);
 });
 
-
-q.awaitAll(function(){
-	console.log('Done');
-});
